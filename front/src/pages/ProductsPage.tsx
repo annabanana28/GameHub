@@ -57,7 +57,6 @@ export function ProductsPage() {
     }
   }
 
-
   const loadProducts = useCallback(async () => {
     setLoading(true);
     setError("");
@@ -97,7 +96,7 @@ export function ProductsPage() {
         && (!category || product.category === category);
     })
     .sort((a, b) => sort === "price"
-      ? String(a.price).localeCompare(String(b.price))
+      ? a.price - b.price
       : a.name.localeCompare(b.name));
 
   return (
