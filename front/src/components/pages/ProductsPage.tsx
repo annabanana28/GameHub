@@ -8,6 +8,7 @@ import { LoadingState } from "@/components/LoadingState";
 import type { ProductDTO } from "@/dto/ProductDTO";
 import { createProduct, deleteProduct, getProducts } from "@/fetch/productRequests";
 import { measurePerformance } from "@/utils/measurePerformance";
+import { sortProducts } from "@/utils/sortProducts";
 
 export function ProductsPage() {
   const [products, setProducts] = useState<ProductDTO[]>([]);
@@ -89,15 +90,16 @@ export function ProductsPage() {
     }
   }
 
-  const visibleProducts = products
-    .filter((product) => {
-      const term = search.toLowerCase();
-      return (product.name.toLowerCase().includes(term) || product.description.toLowerCase().includes(term))
-        && (!category || product.category === category);
-    })
-    .sort((a, b) => sort === "price"
-      ? a.price - b.price
-      : a.name.localeCompare(b.name));
+  const filteredProducts = products.filter((product) => {
+    const term = search.toLowerCase();
+    return (
+      (product.name.toLowerCase().includes(term) ||
+        product.description.toLowerCase().includes(term)) &&
+      (!category || product.category === category)
+    );
+  });
+
+  const visibleProducts = sortProducts(filteredProducts, sort);
 
   return (
     <section>
