@@ -1,3 +1,4 @@
+
 import type { ProductDTO } from "@/dto/ProductDTO";
 import { apiRequest } from "@/fetch/api";
 
@@ -5,6 +6,16 @@ export interface ProductFilters {
   search?: string;
   category?: string;
   sort?: string;
+  page?: number;
+  limit?: number;
+}
+
+export interface PaginatedProducts {
+  products: ProductDTO[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
 }
 
 export function getProducts(filters: ProductFilters = {}) {
@@ -13,8 +24,10 @@ export function getProducts(filters: ProductFilters = {}) {
   if (filters.search) params.set("search", filters.search);
   if (filters.category) params.set("category", filters.category);
   if (filters.sort) params.set("sort", filters.sort);
+  if (filters.page) params.set("page", String(filters.page));
+  if (filters.limit) params.set("limit", String(filters.limit));
 
-  return apiRequest<ProductDTO[]>(`/products?${params.toString()}`);
+  return apiRequest<PaginatedProducts>(`/products?${params.toString()}`);
 }
 
 export function createProduct(product: Omit<ProductDTO, "id">) {

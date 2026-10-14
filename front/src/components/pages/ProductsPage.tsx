@@ -8,13 +8,19 @@ import { LoadingState } from "@/components/LoadingState";
 import type { ProductDTO } from "@/dto/ProductDTO";
 import { createProduct, deleteProduct, getProducts } from "@/fetch/productRequests";
 import { measurePerformance } from "@/utils/measurePerformance";
-import { sortProducts } from "@/utils/sortProducts";
+
+const PAGE_SIZE = 20;
+const DEBOUNCE_MS = 350;
 
 export function ProductsPage() {
   const [products, setProducts] = useState<ProductDTO[]>([]);
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [category, setCategory] = useState("");
   const [sort, setSort] = useState("name");
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [isAdmin, setIsAdmin] = useState(false);
@@ -24,6 +30,7 @@ export function ProductsPage() {
   useEffect(() => {
     const token = window.localStorage.getItem("gamehub-token");
     if (!token) return;
+
     try {
       const encoded = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
       const payload = JSON.parse(window.atob(encoded));
@@ -33,30 +40,14 @@ export function ProductsPage() {
     }
   }, []);
 
-  async function handleCreate(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const data = new FormData(form);
-    setCreating(true);
-    setCreateMessage("");
-    setError("");
-    try {
-      await createProduct({
-        name: String(data.get("name") ?? "").trim(),
-        description: String(data.get("description") ?? "").trim(),
-        category: String(data.get("category") ?? "Jogos") as ProductDTO["category"],
-        price: Number(data.get("price")),
-        stock: Number(data.get("stock"))
-      });
-      setCreateMessage("Produto cadastrado. Catálogo atualizado.");
-      form.reset();
-      await loadProducts();
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Não foi possível cadastrar o produto.");
-    } finally {
-      setCreating(false);
-    }
-  }
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      setDebouncedSearch(search.trim());
+      setPage(1);
+    }, DEBOUNCE_MS);
+
+    return () => clearTimeout(timeout);
+  }, [search]);
 
   const loadProducts = useCallback(async () => {
     setLoading(true);
@@ -65,19 +56,56 @@ export function ProductsPage() {
     try {
       const result = await measurePerformance(
         "carregamento de produtos",
-        () => getProducts({ search, category, sort })
+        () => getProducts({
+          search: debouncedSearch,
+          category,
+          sort,
+          page,
+          limit: PAGE_SIZE
+        })
       );
-      setProducts(result);
+
+      setProducts(result.products);
+      setTotal(result.total);
+      setTotalPages(result.totalPages);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Erro inesperado.");
     } finally {
       setLoading(false);
     }
-  }, [search, category, sort]);
+  }, [debouncedSearch, category, sort, page]);
 
   useEffect(() => {
     void loadProducts();
   }, [loadProducts]);
+
+  async function handleCreate(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    setCreating(true);
+    setCreateMessage("");
+    setError("");
+
+    try {
+      await createProduct({
+        name: String(data.get("name") ?? "").trim(),
+        description: String(data.get("description") ?? "").trim(),
+        category: String(data.get("category") ?? "Jogos") as ProductDTO["category"],
+        price: Number(data.get("price")),
+        stock: Number(data.get("stock"))
+      });
+
+      setCreateMessage("Produto cadastrado. Catálogo atualizado.");
+      form.reset();
+      setPage(1);
+      await loadProducts();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Não foi possível cadastrar o produto.");
+    } finally {
+      setCreating(false);
+    }
+  }
 
   async function handleDelete(id: number) {
     if (!window.confirm("Deseja excluir este produto?")) return;
@@ -90,16 +118,15 @@ export function ProductsPage() {
     }
   }
 
-  const filteredProducts = products.filter((product) => {
-    const term = search.toLowerCase();
-    return (
-      (product.name.toLowerCase().includes(term) ||
-        product.description.toLowerCase().includes(term)) &&
-      (!category || product.category === category)
-    );
-  });
+  function changeCategory(value: string) {
+    setCategory(value);
+    setPage(1);
+  }
 
-  const visibleProducts = sortProducts(filteredProducts, sort);
+  function changeSort(value: string) {
+    setSort(value);
+    setPage(1);
+  }
 
   return (
     <section>
@@ -109,7 +136,9 @@ export function ProductsPage() {
           <h1>Produtos</h1>
           <p>Pesquise e consulte o estoque da loja.</p>
         </div>
-        <span className="result-count">{visibleProducts.length} produtos • catálogo completo</span>
+        <span className="result-count">
+          {total} produtos encontrados · página {page} de {Math.max(totalPages, 1)}
+        </span>
       </div>
 
       {isAdmin && (
@@ -130,33 +159,59 @@ export function ProductsPage() {
       <div className="filters">
         <label>
           Buscar
-          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Nome do produto..." />
+          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Nome ou descrição..." />
         </label>
         <label>
           Categoria
-          <select value={category} onChange={(event) => setCategory(event.target.value)}>
+          <select value={category} onChange={(event) => changeCategory(event.target.value)}>
             <option value="">Todas</option>
             <option value="Consoles">Consoles</option>
             <option value="Jogos">Jogos</option>
             <option value="Acessórios">Acessórios</option>
+            <option value="Periféricos">Periféricos</option>
+            <option value="Hardware">Hardware</option>
           </select>
         </label>
         <label>
           Ordenar
-          <select value={sort} onChange={(event) => setSort(event.target.value)}>
+          <select value={sort} onChange={(event) => changeSort(event.target.value)}>
             <option value="name">Nome</option>
             <option value="price">Preço</option>
           </select>
         </label>
       </div>
 
-      {loading ? <LoadingState /> : error ? <ErrorState message={error} onRetry={loadProducts} /> : (
-        <div className="product-grid">
-          {visibleProducts.map((product) => (
-            <ProductCard key={product.id} product={product} onDelete={handleDelete} />
-          ))}
-          {visibleProducts.length === 0 && <p>Nenhum produto encontrado.</p>}
-        </div>
+      {loading ? (
+        <LoadingState />
+      ) : error ? (
+        <ErrorState message={error} onRetry={loadProducts} />
+      ) : (
+        <>
+          <div className="product-grid">
+            {products.map((product) => (
+              <ProductCard key={product.id} product={product} onDelete={handleDelete} />
+            ))}
+            {products.length === 0 && <p>Nenhum produto encontrado.</p>}
+          </div>
+
+          <div className="pagination" aria-label="Paginação do catálogo">
+            <button
+              className="button"
+              disabled={page <= 1 || loading}
+              onClick={() => setPage((current) => current - 1)}
+            >
+              Anterior
+            </button>
+            <span>Página {page} de {Math.max(totalPages, 1)}</span>
+            <button
+              className="button"
+              disabled={page >= totalPages || loading || totalPages === 0}
+              onClick={() => setPage((current) => current + 1)}
+            >
+              Próxima
+            </button>
+          </div>
+        </>
       )}
     </section>
   );
