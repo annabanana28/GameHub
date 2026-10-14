@@ -1,3 +1,4 @@
+
 import { db } from "../database/db";
 import type { CreateProductDTO } from "../../src/dto/CreateProductDTO";
 import type { Product } from "../../src/model/Product";
@@ -32,24 +33,20 @@ export class ProductRepository {
 
     if (filters.category) {
       values.push(filters.category);
-      conditions.push(`name = $${values.length}`);
+      conditions.push(`category = $${values.length}`);
     }
 
     const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
     const orderBy = filters.sort === "price" ? "price ASC" : "name ASC";
     const sql = `SELECT id, name, description, category, price, stock FROM products ${where} ORDER BY ${orderBy}`;
 
-    const firstStartedAt = performance.now();
-    const discardedResult = await db.query(sql, values);
+    const startedAt = performance.now();
+    const result = await db.query(sql, values);
+
     console.info(
-      `[SQL LENTO] listagem descartada: ${discardedResult.rowCount ?? 0} linhas em ${(performance.now() - firstStartedAt).toFixed(2)} ms`
+      `[SQL] listagem: ${result.rowCount ?? 0} linhas em ${(performance.now() - startedAt).toFixed(2)} ms`
     );
 
-    const secondStartedAt = performance.now();
-    const result = await db.query(sql, values);
-    console.info(
-      `[SQL LENTO] listagem retornada: ${result.rowCount ?? 0} linhas em ${(performance.now() - secondStartedAt).toFixed(2)} ms`
-    );
     return result.rows.map(mapProduct);
   }
 
@@ -69,17 +66,27 @@ export class ProductRepository {
 
   async getDashboard() {
     const dashboardStartedAt = performance.now();
-    const total = await db.query("SELECT COUNT(*) AS value FROM products");
-    const lowStock = await db.query("SELECT COUNT(*) AS value FROM products WHERE stock <= 5");
-    const inventory = await db.query("SELECT COALESCE(SUM(price * stock), 0) AS value FROM products");
-    const categories = await db.query("SELECT COUNT(DISTINCT category) AS value FROM products");
-    console.info(`[SQL LENTO] dashboard: 4 consultas sequenciais em ${(performance.now() - dashboardStartedAt).toFixed(2)} ms`);
+
+    const result = await db.query(
+      `SELECT
+         COUNT(*) AS total_products,
+         COUNT(*) FILTER (WHERE stock <= 5) AS low_stock,
+         COALESCE(SUM(price * stock), 0) AS inventory_value,
+         COUNT(DISTINCT category) AS categories
+       FROM products`
+    );
+
+    console.info(
+      `[SQL] dashboard: 1 consulta em ${(performance.now() - dashboardStartedAt).toFixed(2)} ms`
+    );
+
+    const dashboard = result.rows[0];
 
     return {
-      totalProducts: Number(total.rows[0].value),
-      lowStock: Number(lowStock.rows[0].value),
-      inventoryValue: Number(inventory.rows[0].value),
-      categories: Number(categories.rows[0].value)
+      totalProducts: Number(dashboard.total_products),
+      lowStock: Number(dashboard.low_stock),
+      inventoryValue: Number(dashboard.inventory_value),
+      categories: Number(dashboard.categories)
     };
   }
 }
